@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+      "target": "ESNext",
+      "outDir": "./build",
+      "allowJs": false,
+      "module": "CommonJS",
+      "moduleResolution": "node",
+      "noImplicitAny": false, /* Raise error on expressions and declarations with an implied 'any' type. */
+      "strictFunctionTypes": true,
+      "allowUnusedLabels": true,
+      "allowUnreachableCode": true,
+      "noImplicitReturns": true,
+      "alwaysStrict": false,
+      "noUnusedParameters": false,
+      "noFallthroughCasesInSwitch": true,
+      "forceConsistentCasingInFileNames": true,
+      "noUnusedLocals": false,
+      "noEmitOnError": true,
+      "skipDefaultLibCheck": true,
+      "skipLibCheck": true,
+      "experimentalDecorators": true,
+      "lib": [
+          "es2017",
+          "es2016",
+          "es2015.promise",
+          "DOM"
+      ],
+      "baseUrl": "./"
+  },
+  "include": [
+      "./**/*",
+  ],
+  "exclude": [
+      "node_modules",
+      "build",
+      "test_output",
+      "temp"
+  ]
+}
+
+

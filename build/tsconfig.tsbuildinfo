@@ -1,0 +1,1 @@
+{"root":["../src/backtest/backtest.ts","../src/core/config.ts","../src/core/price.ts","../src/core/wallet.test.ts","../src/core/wallet.ts","../src/exchange/exchange.test.ts","../src/exchange/exchange.ts","../src/scripts/optimize.ts","../src/strategy/index.ts","../src/strategy/test.ts","../src/types/main.ts"],"version":"5.7.3"}
