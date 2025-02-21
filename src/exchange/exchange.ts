@@ -118,20 +118,21 @@ export class Exchange {
     /**
      * 挂买单
      * @param symbol 交易对
-     * @param price 期望买入价格
      * @param amount 数量
+     * @param price 期望买入价格
      * @returns 订单ID
      */
-    placeBuyOrder(symbol: Symbol, price: number, amount: number): string {
+    placeBuyOrder(symbol: Symbol, amount: number, price: number): string {
         if (amount <= 0 || price <= 0) {
             throw new Error('价格和数量必须大于 0');
         }
 
-        // 预先检查余额是否足够
+        // 计算总成本（包含手续费）
         const totalCost = price * amount;
         const fee = totalCost * this.feeRates.limitBuy;
         const totalCostWithFee = totalCost + fee;
 
+        // 检查余额
         const fiatBalance = this.wallet.getFiatBalance();
         if (fiatBalance < totalCostWithFee) {
             throw new Error(
@@ -150,7 +151,8 @@ export class Exchange {
             isBuy: true,
             price,
             amount,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            totalCostWithFee  // 记录包含手续费的总成本
         });
 
         return orderId;
@@ -204,9 +206,8 @@ export class Exchange {
 
         // 解冻资产
         if (order.isBuy) {
-            const totalCost = order.price * order.amount;
-            const fee = totalCost * this.feeRates.limitBuy;
-            this.wallet.addFiatBalance(totalCost + fee);
+            // 直接使用记录的总成本（包含手续费）
+            this.wallet.addFiatBalance(order.totalCostWithFee);
         } else {
             this.wallet.addBalance(order.symbol, order.amount);
         }
@@ -336,13 +337,17 @@ export class Exchange {
         const currentEquity = position.margin + unrealizedPnl;
         const positionValue = currentPrice * position.amount;
 
+        // 当前维持保证金率 = 当前权益 / 仓位价值
+        // 如果低于 5%，触发强平
         if (currentEquity / positionValue < this.maintenanceMarginRate) {
+            console.log(`
+                触发强平：
+                - 当前权益：${currentEquity}
+                - 仓位价值：${positionValue}
+                - 当前维持保证金率：${(currentEquity / positionValue * 100).toFixed(3)}%
+                - 最低维持保证金率：${this.maintenanceMarginRate * 100}%
+            `);
             this.closeShort(symbol);
-            throw new Error(
-                `触发强平：当前权益：${currentEquity}，` +
-                `仓位价值：${positionValue}，` +
-                `维持保证金率：${this.maintenanceMarginRate}`
-            );
         }
     }
 
@@ -437,15 +442,30 @@ export class Exchange {
             }
         }, 0);
 
-        // 3. 计算空单价值（保证金 + 未实现盈亏）
+        // 3. 计算挂单资产价值
+        const frozenValue = Array.from(this.pendingOrders.values()).reduce((total, order) => {
+            try {
+                if (order.isBuy) {
+                    // 买单：直接使用记录的总成本
+                    return total + order.totalCostWithFee;
+                } else {
+                    // 卖单：用当前价格计算冻结资产的价值
+                    const currentPrice = getPrice(order.symbol);
+                    return total + order.amount * currentPrice;
+                }
+            } catch {
+                // 如果获取价格失败，忽略该资产
+                return total;
+            }
+        }, 0);
+
+        // 4. 计算空单价值（保证金 + 未实现盈亏）
         const shortValue = Array.from(this.shortPositions.values()).reduce((total, position) => {
-            // 计算未实现盈亏
             const unrealizedPnl = this.getUnrealizedPnl(position.symbol);
-            // 返回保证金 + 未实现盈亏
             return total + position.margin + unrealizedPnl;
         }, 0);
 
         // 返回总价值
-        return fiatBalance + spotValue + shortValue;
+        return fiatBalance + spotValue + frozenValue + shortValue;
     }
 }

@@ -70,6 +70,7 @@ export interface PendingOrder {
     amount: number;
     /** 下单时间戳 */
     timestamp: number;
+    totalCostWithFee?: number;  // 添加这个字段，记录包含手续费的总成本
 }
 
 /**
