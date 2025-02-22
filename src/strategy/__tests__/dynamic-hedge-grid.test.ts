@@ -30,7 +30,7 @@ describe('DynamicHedgeGridStrategy', () => {
             gridUpperLimit: upperLimit,
             gridLowerLimit: lowerLimit,
             gridCount: gridCount,
-            buyAmount: buyAmount
+            totalInvestment: 1000
         });
 
         strategy['exchange'] = exchange;
@@ -46,53 +46,55 @@ describe('DynamicHedgeGridStrategy', () => {
             const orders = exchange.getPendingOrders();
 
             /**
-             * 预期的网格订单情况（包含边界）：
+             * 预期的网格订单情况：
+             * 1. 初始买入：500 USDT / 30000 = 0.0167 BTC
+             * 2. 卖单：0.0167 / 5 = 0.00334 BTC 每单
              * 价格    类型   数量
-             * 33000   卖    0.1 BTC  \
-             * 32400   卖    0.1 BTC   \
-             * 31800   卖    0.1 BTC    > 这些卖单总共需要 0.5 BTC，从钱包中扣除
-             * 31200   卖    0.1 BTC   /
-             * 30600   卖    0.1 BTC  /
+             * 33000   卖    0.00334 BTC
+             * 32400   卖    0.00334 BTC
+             * 31800   卖    0.00334 BTC
+             * 31200   卖    0.00334 BTC
+             * 30600   卖    0.00334 BTC
              * 30000   (当前价格)
-             * 29400   买    0.1 BTC
-             * 28800   买    0.1 BTC
-             * 28200   买    0.1 BTC
-             * 27600   买    0.1 BTC
-             * 27000   买    0.1 BTC
+             * 29400   买    0.0170 BTC (500/5/29400)
+             * 28800   买    0.0174 BTC (500/5/28800)
+             * 28200   买    0.0177 BTC (500/5/28200)
+             * 27600   买    0.0181 BTC (500/5/27600)
+             * 27000   买    0.0185 BTC (500/5/27000)
              */
 
-            // 预期的卖单价格（从低到高）
-            const expectedSellPrices = [30600, 31200, 31800, 32400, 33000];
-            // 预期的买单价格（从高到低）
-            const expectedBuyPrices = [29400, 28800, 28200, 27600, 27000];
-
-            // 获取实际的卖单和买单
+            // 验证卖单
             const sellOrders = orders.filter(order => !order.isBuy)
                 .sort((a, b) => a.price - b.price);
-            const buyOrders = orders.filter(order => order.isBuy)
-                .sort((a, b) => b.price - a.price);
+            expect(sellOrders.length).toBe(5);
 
-            // 验证卖单
-            expect(sellOrders.length).toBe(expectedSellPrices.length);
-            sellOrders.forEach((order, index) => {
-                expect(order.price).toBe(expectedSellPrices[index]);
-                expect(order.amount).toBe(buyAmount);
+            // 计算预期的卖单数量：初始买入量/卖单数量
+            const initialBtcAmount = Number((500 / currentPrice).toFixed(8)); // 500 是总投资的一半
+            const expectedSellAmount = Number((initialBtcAmount / sellOrders.length).toFixed(8));
+            
+            // 验证每个卖单的数量
+            sellOrders.forEach(order => {
+                expect(order.amount).toBe(expectedSellAmount);
             });
 
             // 验证买单
-            expect(buyOrders.length).toBe(expectedBuyPrices.length);
+            const buyOrders = orders.filter(order => order.isBuy)
+                .sort((a, b) => b.price - a.price);
+            expect(buyOrders.length).toBe(5);
+            
+            // 验证每个买单的数量是正确的（投资额/价格）
+            const investmentPerGrid = 500 / 5; // 一半投资额平均分配到5个买单
             buyOrders.forEach((order, index) => {
-                expect(order.price).toBe(expectedBuyPrices[index]);
-                expect(order.amount).toBe(buyAmount);
+                const expectedAmount = Number((investmentPerGrid / order.price).toFixed(8));
+                expect(order.amount).toBe(expectedAmount);
             });
 
-            // 验证卖单总量等于初始买入量
+            // 验证所有卖单的总量等于初始买入量
             const totalSellAmount = sellOrders.reduce((sum, order) => sum + order.amount, 0);
-            expect(totalSellAmount).toBe(buyAmount * expectedSellPrices.length); // 0.1 * 5 = 0.5 BTC
+            expect(totalSellAmount).toBeCloseTo(initialBtcAmount, 3);
 
-            // 验证钱包余额接近 0（因为所有 BTC 都被用于创建卖单）
-            const btcBalance = wallet.getBalance(Symbol.BTC_USDT);
-            expect(btcBalance).toBeLessThan(0.00001);
+            // 验证钱包中的 BTC 已经全部用于创建卖单
+            expect(wallet.getBalance(Symbol.BTC_USDT)).toBeCloseTo(0, 3);
         });
 
         it('should place orders at correct grid prices', async () => {
@@ -121,7 +123,7 @@ describe('DynamicHedgeGridStrategy', () => {
                     gridUpperLimit: upperLimit,
                     gridLowerLimit: lowerLimit,
                     gridCount: gridCount,
-                    buyAmount: buyAmount
+                    totalInvestment: 1000
                 });
         
                 strategy['exchange'] = exchange;
@@ -130,7 +132,7 @@ describe('DynamicHedgeGridStrategy', () => {
              * 测试场景 1：当价格在下边界 27000 时
              * - 27000 是网格的最低点，所以不会在这个价格创建订单
              * - 应该创建 10 个卖单，价格从 27600 到 33000
-             * - 需要买入 1.0 BTC 作为初始仓位 (10 个卖单 * 0.1 BTC)
+             * - 初始仓位应该是总投资额的一半用于买入 BTC
              */
             it('should create sell orders when price is at lower limit', async () => {
                 jest.spyOn(priceModule, 'getPrice').mockImplementation(() => lowerLimit);
@@ -152,16 +154,14 @@ describe('DynamicHedgeGridStrategy', () => {
                 expect(actualPrices).toEqual(expectedPrices);
 
                 // 验证卖单中锁定的 BTC 总量等于预期的初始仓位
-                const expectedInitialBtc = buyAmount * gridCount; // 0.1 * 10 = 1.0 BTC
+                const initialInvestment = 500; // 总投资额的一半
+                const expectedInitialBtc = initialInvestment / lowerLimit; // 用于买入BTC的资金除以当前价格
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
-                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 1);
+                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 5);
             });
 
             /**
              * 测试场景 2：当价格低于下边界（26900）时
-             * - 此时 27000 也会成为一个卖单价格点
-             * - 应该创建 11 个卖单，价格从 27000 到 33000
-             * - 需要买入 1.1 BTC 作为初始仓位 (11 个卖单 * 0.1 BTC)
              */
             it('should create sell orders when price is below lower limit', async () => {
                 const belowLowerLimit = 26900;
@@ -184,9 +184,10 @@ describe('DynamicHedgeGridStrategy', () => {
                 expect(actualPrices).toEqual(expectedPrices);
 
                 // 验证卖单中锁定的 BTC 总量
-                const expectedInitialBtc = buyAmount * (gridCount + 1); // 0.1 * 11 = 1.1 BTC
+                const initialInvestment = 500; // 总投资额的一半
+                const expectedInitialBtc = initialInvestment / belowLowerLimit;
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
-                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 1);
+                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 8);
             });
 
             /**
@@ -220,10 +221,7 @@ describe('DynamicHedgeGridStrategy', () => {
             });
 
             /**
-             * 测试场景 4：当价格远低于下边界（比如 25000）时
-             * - 应该创建 11 个卖单，价格从 27000 到 33000
-             * - 不应该在 25000 创建卖单，因为它超出了网格范围
-             * - 需要买入 1.1 BTC 作为初始仓位 (11 个卖单 * 0.1 BTC)
+             * 测试场景 4：当价格远低于下边界时
              */
             it('should create sell orders when price is far below lower limit', async () => {
                 const farBelowLimit = 25000;
@@ -249,9 +247,10 @@ describe('DynamicHedgeGridStrategy', () => {
                 expect(orders.some(o => o.price < lowerLimit)).toBe(false);
                 
                 // 验证卖单中锁定的 BTC 总量
-                const expectedInitialBtc = buyAmount * (gridCount + 1); // 0.1 * 11 = 1.1 BTC
+                const initialInvestment = 500; // 总投资额的一半
+                const expectedInitialBtc = initialInvestment / farBelowLimit;
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
-                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 1);
+                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 8);
             });
 
             /**
@@ -312,7 +311,7 @@ describe('DynamicHedgeGridStrategy', () => {
                 gridUpperLimit: upperLimit,
                 gridLowerLimit: lowerLimit,
                 gridCount: gridCount,
-                buyAmount: buyAmount,
+                totalInvestment: 1000,
                 takeProfitPrice: 34000,  // 止盈价格
                 stopLossPrice: 26000     // 止损价格
             });

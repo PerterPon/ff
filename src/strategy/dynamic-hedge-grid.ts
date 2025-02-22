@@ -5,16 +5,17 @@ import { getPrice } from '../core/price';
 interface GridConfig {
     gridUpperLimit: number;     // 网格上限价格
     gridLowerLimit: number;     // 网格下限价格
-    gridCount: number;      // 网格数量
-    buyAmount: number;     // 每次购买的数量
-    takeProfitPrice?: number;  // 止盈价格
-    stopLossPrice?: number;    // 止损价格
+    gridCount: number;          // 网格数量
+    totalInvestment: number;    // 总投资额
+    takeProfitPrice?: number;   // 止盈价格
+    stopLossPrice?: number;     // 止损价格
 }
 
 interface GridOrder {
     price: number;
     isBuy: boolean;
     orderId?: string;
+    amount: number;
 }
 
 export class DynamicHedgeGridStrategy implements Strategy {
@@ -26,10 +27,10 @@ export class DynamicHedgeGridStrategy implements Strategy {
 
     constructor(config: Partial<GridConfig> = {}) {
         this.config = {
-            gridUpperLimit: 0,      // 将在初始化时设置
-            gridLowerLimit: 0,      // 将在初始化时设置
-            gridCount: 10,      // 默认 10 个网格
-            buyAmount: 0.2,
+            gridUpperLimit: 0,
+            gridLowerLimit: 0,
+            gridCount: 10,
+            totalInvestment: 1000,  // 默认投资额
             ...config
         };
     }
@@ -78,23 +79,33 @@ export class DynamicHedgeGridStrategy implements Strategy {
             gridPrices.push(price);
         }
 
-        // 添加调试日志
         console.log('网格所有价格点:', gridPrices);
         console.log('当前价格:', currentPrice);
 
-        // 3. 计算需要买入的初始仓位
-        const sellGridCount = gridPrices.filter(price => price > currentPrice).length;
-        console.log('卖单数量：', sellGridCount);
-        console.log('买入数量配置：', this.config.buyAmount);
+        // 3. 计算每个网格的投资额和数量
+        const sellGridPrices = gridPrices.filter(price => 
+            price > currentPrice && Math.abs(price - currentPrice) >= this.gridSpacing * 0.1
+        );
+        const buyGridPrices = gridPrices.filter(price => 
+            price < currentPrice && Math.abs(price - currentPrice) >= this.gridSpacing * 0.1
+        );
 
-        const initialBuyAmount = this.config.buyAmount * sellGridCount;
-        console.log('计算得到的初始买入量：', initialBuyAmount);
+        // 一半资金用于买入开仓
+        const initialInvestment = this.config.totalInvestment / 2;
+        // 使用 toFixed(8) 来控制 BTC 数量的精度
+        const initialBtcAmount = Number((initialInvestment / currentPrice).toFixed(8));
+        
+        // 每个卖单的 BTC 数量，同样控制精度
+        const btcPerSellGrid = Number((initialBtcAmount / sellGridPrices.length).toFixed(8));
+        
+        // 一半资金用于买单
+        const remainingInvestment = this.config.totalInvestment / 2;
+        const investmentPerBuyGrid = remainingInvestment / buyGridPrices.length;
 
         // 4. 买入初始仓位
         try {
-            if (initialBuyAmount > 0) {
-                await this.exchange.spotBuy(symbol, initialBuyAmount);
-                // 添加验证
+            if (initialBtcAmount > 0) {
+                await this.exchange.spotBuy(symbol, initialBtcAmount);
                 console.log('买入后的实际 BTC 余额：', this.exchange.wallet.getBalance(symbol));
             }
         } catch (error) {
@@ -102,33 +113,38 @@ export class DynamicHedgeGridStrategy implements Strategy {
             return;
         }
 
+        
         // 5. 创建网格订单
         this.gridOrders = [];
         for (const price of gridPrices) {
-            // 跳过当前价格的网格线
+            // 跳过当前价格附近的网格线
             if (Math.abs(price - currentPrice) < this.gridSpacing * 0.1) continue;
 
             const isBuy = price < currentPrice;
+            // 买单和卖单分别处理精度
+            const amount = isBuy 
+                ? Number((investmentPerBuyGrid / price).toFixed(8))
+                : btcPerSellGrid;
+            
             const order: GridOrder = {
                 price,
-                isBuy
+                isBuy,
+                amount
             };
 
             try {
-                // 创建买单或卖单
                 if (isBuy) {
                     order.orderId = this.exchange.placeBuyOrder(
                         symbol,
-                        this.config.buyAmount,
+                        amount,
                         price
                     );
                 } else {
                     order.orderId = this.exchange.placeSellOrder(
                         symbol,
                         price,
-                        this.config.buyAmount
+                        amount
                     );
-                    
                 }
                 this.gridOrders.push(order);
             } catch (error) {
@@ -137,7 +153,6 @@ export class DynamicHedgeGridStrategy implements Strategy {
         }
 
         console.log(`Grid created with ${this.gridOrders.length} orders`);
-        console.log(`Initial position: ${initialBuyAmount} ${symbol}`);
     }
 
     /**
