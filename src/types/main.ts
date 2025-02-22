@@ -4,6 +4,7 @@ import { Exchange } from '../exchange/exchange';
  * K 线数据接口
  */
 export interface Kline {
+    symbol: Symbol;
     timestamp: number;    // 时间戳
     open: number;        // 开盘价
     high: number;        // 最高价

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const backtest_1 = require("../backtest/backtest");
-const test_1 = require("../strategy/test");
+const dynamic_hedge_grid_1 = require("../strategy/dynamic-hedge-grid");
 const fs = require("fs");
 const path = require("path");
 const echarts = require("echarts");
@@ -113,7 +113,7 @@ async function main() {
         console.log(`开始第 ${i + 1} 次回测...`);
         try {
             // 创建策略实例
-            const strategy = new test_1.TestStrategy();
+            const strategy = new dynamic_hedge_grid_1.DynamicHedgeGridStrategy();
             const backtest = new backtest_1.Backtest(strategy, INITIAL_BALANCE);
             // 运行回测
             const result = await backtest.run('/Users/pon/project/ff2/data/test.json');

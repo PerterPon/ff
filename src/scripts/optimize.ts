@@ -1,5 +1,6 @@
 import { Backtest } from '../backtest/backtest';
 import { TestStrategy } from '../strategy/test';
+import { DynamicHedgeGridStrategy } from '../strategy/dynamic-hedge-grid';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as echarts from 'echarts';
@@ -131,7 +132,7 @@ async function main() {
 
         try {
             // 创建策略实例
-            const strategy = new TestStrategy();
+            const strategy = new DynamicHedgeGridStrategy();
             const backtest = new Backtest(strategy, INITIAL_BALANCE);
 
             // 运行回测

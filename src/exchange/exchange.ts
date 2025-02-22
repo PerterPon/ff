@@ -24,7 +24,7 @@ interface FeeRates {
  * 交易所类，支持现货交易、挂单功能和空单交易
  */
 export class Exchange {
-    private wallet: Wallet;
+    public wallet: Wallet;
     private feeRates: FeeRates;
     private pendingOrders: Map<string, PendingOrder>;
     private shortPositions: Map<Symbol, ShortPosition>;
@@ -467,5 +467,10 @@ export class Exchange {
 
         // 返回总价值
         return fiatBalance + spotValue + frozenValue + shortValue;
+    }
+
+    getBalance(symbol: Symbol): number {
+        // Implementation of getBalance method
+        throw new Error("Method not implemented");
     }
 }

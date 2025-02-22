@@ -1,0 +1,22 @@
+{
+  "timestamps": [
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "assetValues": [
+    100000,
+    100000,
+    100000,
+    100000,
+    100000
+  ],
+  "totalTrades": 0,
+  "totalFees": 0,
+  "initialBalance": 100000,
+  "finalBalance": 100000,
+  "maxDrawdown": 0,
+  "returns": 0
+}
