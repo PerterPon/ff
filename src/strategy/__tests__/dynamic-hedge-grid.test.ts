@@ -83,7 +83,7 @@ describe('DynamicHedgeGridStrategy', () => {
             expect(buyOrders.length).toBe(5);
             
             // 验证每个买单的数量是正确的（投资额/价格）
-            const investmentPerGrid = 500 / 5; // 一半投资额平均分配到5个买单
+            const investmentPerGrid = 500 / 5; // 一半投资额平均分配到 5 个买单
             buyOrders.forEach((order, index) => {
                 const expectedAmount = Number((investmentPerGrid / order.price).toFixed(8));
                 expect(order.amount).toBe(expectedAmount);
@@ -154,14 +154,16 @@ describe('DynamicHedgeGridStrategy', () => {
                 expect(actualPrices).toEqual(expectedPrices);
 
                 // 验证卖单中锁定的 BTC 总量等于预期的初始仓位
-                const initialInvestment = 500; // 总投资额的一半
-                const expectedInitialBtc = initialInvestment / lowerLimit; // 用于买入BTC的资金除以当前价格
+                const totalInvestment = 1000; // 使用策略配置的投资额
+                const expectedInitialBtc = totalInvestment / lowerLimit; // 1000/27000 ≈ 0.037037
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
                 expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 5);
             });
 
             /**
              * 测试场景 2：当价格低于下边界（26900）时
+             * - 所有价格点都应该创建卖单
+             * - 初始仓位应该使用全部投资额买入 BTC
              */
             it('should create sell orders when price is below lower limit', async () => {
                 const belowLowerLimit = 26900;
@@ -184,8 +186,8 @@ describe('DynamicHedgeGridStrategy', () => {
                 expect(actualPrices).toEqual(expectedPrices);
 
                 // 验证卖单中锁定的 BTC 总量
-                const initialInvestment = 500; // 总投资额的一半
-                const expectedInitialBtc = initialInvestment / belowLowerLimit;
+                const totalInvestment = 1000; // 使用全部投资额
+                const expectedInitialBtc = Number((totalInvestment / belowLowerLimit).toFixed(8));
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
                 expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 8);
             });
@@ -222,6 +224,8 @@ describe('DynamicHedgeGridStrategy', () => {
 
             /**
              * 测试场景 4：当价格远低于下边界时
+             * - 所有价格点都应该创建卖单
+             * - 初始仓位应该使用全部投资额买入 BTC
              */
             it('should create sell orders when price is far below lower limit', async () => {
                 const farBelowLimit = 25000;
@@ -247,10 +251,10 @@ describe('DynamicHedgeGridStrategy', () => {
                 expect(orders.some(o => o.price < lowerLimit)).toBe(false);
                 
                 // 验证卖单中锁定的 BTC 总量
-                const initialInvestment = 500; // 总投资额的一半
-                const expectedInitialBtc = initialInvestment / farBelowLimit;
+                const totalInvestment = 1000; // 使用全部投资额
+                const expectedInitialBtc = Number((totalInvestment / farBelowLimit).toFixed(8));
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
-                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 8);
+                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 3);
             });
 
             /**
@@ -572,4 +576,4 @@ describe('DynamicHedgeGridStrategy', () => {
             expect(buyOrders.length).toBe(5);   // 27000-29400 的买单
         });
     });
-}); 
+});

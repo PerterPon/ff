@@ -80,27 +80,43 @@ export class DynamicHedgeGridStrategy implements Strategy {
         }
 
         console.log('网格所有价格点:', gridPrices);
-        console.log('当前价格:', currentPrice);
 
-        // 3. 计算每个网格的投资额和数量
+        // 3. 根据当前价格确定买卖单的分布
         const sellGridPrices = gridPrices.filter(price => 
-            price > currentPrice && Math.abs(price - currentPrice) >= this.gridSpacing * 0.1
+            price > currentPrice
         );
         const buyGridPrices = gridPrices.filter(price => 
-            price < currentPrice && Math.abs(price - currentPrice) >= this.gridSpacing * 0.1
+            price < currentPrice
         );
 
-        // 一半资金用于买入开仓
-        const initialInvestment = this.config.totalInvestment / 2;
-        // 使用 toFixed(8) 来控制 BTC 数量的精度
-        const initialBtcAmount = Number((initialInvestment / currentPrice).toFixed(8));
-        
-        // 每个卖单的 BTC 数量，同样控制精度
-        const btcPerSellGrid = Number((initialBtcAmount / sellGridPrices.length).toFixed(8));
-        
-        // 一半资金用于买单
-        const remainingInvestment = this.config.totalInvestment / 2;
-        const investmentPerBuyGrid = remainingInvestment / buyGridPrices.length;
+        console.log('卖单价格点:', sellGridPrices);
+        console.log('买单价格点:', buyGridPrices);
+
+        // 计算初始买入金额和每个网格的 BTC 数量
+        let initialBtcAmount = 0;
+        let btcPerSellGrid = 0;
+        let investmentPerBuyGrid = 0;
+
+        const totalGrids = sellGridPrices.length + buyGridPrices.length;
+        if (sellGridPrices.length > 0 && totalGrids > 0) {
+            // 根据卖单数量占比计算需要买入的资金比例
+            const investmentRatio = sellGridPrices.length / totalGrids;
+            const initialInvestment = this.config.totalInvestment * investmentRatio;
+            
+            // 计算需要买入的 BTC 数量
+            initialBtcAmount = Number((initialInvestment / currentPrice).toFixed(8));
+            // 每个卖单分配相等的 BTC 数量
+            btcPerSellGrid = Number((initialBtcAmount / sellGridPrices.length).toFixed(8));
+            
+            // 剩余资金用于买单
+            const remainingInvestment = this.config.totalInvestment - initialInvestment;
+            investmentPerBuyGrid = buyGridPrices.length > 0 
+                ? remainingInvestment / buyGridPrices.length 
+                : 0;
+        } else if (buyGridPrices.length > 0) {
+            // 如果只有买单，全部资金用于买单
+            investmentPerBuyGrid = this.config.totalInvestment / buyGridPrices.length;
+        }
 
         // 4. 买入初始仓位
         try {
@@ -117,14 +133,19 @@ export class DynamicHedgeGridStrategy implements Strategy {
         // 5. 创建网格订单
         this.gridOrders = [];
         for (const price of gridPrices) {
-            // 跳过当前价格附近的网格线
-            if (Math.abs(price - currentPrice) < this.gridSpacing * 0.1) continue;
+            if (price === currentPrice) {
+                continue;
+            }
 
             const isBuy = price < currentPrice;
+            const isSell = price > currentPrice;
             // 买单和卖单分别处理精度
-            const amount = isBuy 
-                ? Number((investmentPerBuyGrid / price).toFixed(8))
-                : btcPerSellGrid;
+            let amount = 0;
+            if (isBuy) {
+                amount = Number((investmentPerBuyGrid / price).toFixed(8));
+            } else if (isSell) {
+                amount = btcPerSellGrid;
+            }
             
             const order: GridOrder = {
                 price,
@@ -139,7 +160,7 @@ export class DynamicHedgeGridStrategy implements Strategy {
                         amount,
                         price
                     );
-                } else {
+                } else if (isSell) {
                     order.orderId = this.exchange.placeSellOrder(
                         symbol,
                         price,
