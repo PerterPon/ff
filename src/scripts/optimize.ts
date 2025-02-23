@@ -1,6 +1,6 @@
 import { Backtest } from '../backtest/backtest';
 import { TestStrategy } from '../strategy/test';
-import { DynamicHedgeGridStrategy } from '../strategy/dynamic-hedge-grid';
+import { DynamicHedgeGridStrategy } from '../strategy/test2';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as echarts from 'echarts';

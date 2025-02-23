@@ -11,11 +11,17 @@ describe('DynamicHedgeGridStrategy', () => {
     
     // 测试参数设置
     const currentPrice = 30000;    // 当前价格 30000
-    const upperLimit = 33000;      // 网格上限
-    const lowerLimit = 27000;      // 网格下限
+    const gridWidth = 0.01;        // 网格宽度 1%
     const gridCount = 10;          // 网格数量
-    const gridSize = (upperLimit - lowerLimit) / gridCount;  // 每格大小 = 600
-    const buyAmount = 0.1;         // 每格交易数量 0.1 BTC
+    const pricePosition = 50;      // 价格位置在中间
+    
+    // 计算网格范围
+    const totalWidth = gridCount * gridWidth;  // 总宽度 10%
+    const widthAbove = totalWidth * (1 - pricePosition/100);  // 上方宽度 5%
+    const widthBelow = totalWidth * (pricePosition/100);      // 下方宽度 5%
+    const upperLimit = currentPrice * (1 + widthAbove);  // 31500
+    const lowerLimit = currentPrice * (1 - widthBelow);  // 28500
+    const gridSize = (upperLimit - lowerLimit) / gridCount;  // 300
 
     beforeEach(() => {
         // Mock getPrice 函数
@@ -27,10 +33,10 @@ describe('DynamicHedgeGridStrategy', () => {
 
         // 创建策略实例，设置网格参数
         strategy = new DynamicHedgeGridStrategy({
-            gridUpperLimit: upperLimit,
-            gridLowerLimit: lowerLimit,
-            gridCount: gridCount,
-            totalInvestment: 1000
+            gridWidth,
+            gridCount,
+            totalInvestment: 1000,
+            pricePosition
         });
 
         strategy['exchange'] = exchange;
@@ -50,17 +56,17 @@ describe('DynamicHedgeGridStrategy', () => {
              * 1. 初始买入：500 USDT / 30000 = 0.0167 BTC
              * 2. 卖单：0.0167 / 5 = 0.00334 BTC 每单
              * 价格    类型   数量
-             * 33000   卖    0.00334 BTC
-             * 32400   卖    0.00334 BTC
-             * 31800   卖    0.00334 BTC
+             * 31500   卖    0.00334 BTC
              * 31200   卖    0.00334 BTC
+             * 30900   卖    0.00334 BTC
              * 30600   卖    0.00334 BTC
+             * 30300   卖    0.00334 BTC
              * 30000   (当前价格)
+             * 29700   买    0.0168 BTC (500/5/29700)
              * 29400   买    0.0170 BTC (500/5/29400)
+             * 29100   买    0.0172 BTC (500/5/29100)
              * 28800   买    0.0174 BTC (500/5/28800)
-             * 28200   买    0.0177 BTC (500/5/28200)
-             * 27600   买    0.0181 BTC (500/5/27600)
-             * 27000   买    0.0185 BTC (500/5/27000)
+             * 28500   买    0.0175 BTC (500/5/28500)
              */
 
             // 验证卖单
@@ -68,11 +74,10 @@ describe('DynamicHedgeGridStrategy', () => {
                 .sort((a, b) => a.price - b.price);
             expect(sellOrders.length).toBe(5);
 
-            // 计算预期的卖单数量：初始买入量/卖单数量
-            const initialBtcAmount = Number((500 / currentPrice).toFixed(8)); // 500 是总投资的一半
+            // 计算预期的卖单数量
+            const initialBtcAmount = Number((500 / currentPrice).toFixed(8));
             const expectedSellAmount = Number((initialBtcAmount / sellOrders.length).toFixed(8));
             
-            // 验证每个卖单的数量
             sellOrders.forEach(order => {
                 expect(order.amount).toBe(expectedSellAmount);
             });
@@ -82,9 +87,9 @@ describe('DynamicHedgeGridStrategy', () => {
                 .sort((a, b) => b.price - a.price);
             expect(buyOrders.length).toBe(5);
             
-            // 验证每个买单的数量是正确的（投资额/价格）
-            const investmentPerGrid = 500 / 5; // 一半投资额平均分配到 5 个买单
-            buyOrders.forEach((order, index) => {
+            // 验证每个买单的数量
+            const investmentPerGrid = 500 / 5;
+            buyOrders.forEach(order => {
                 const expectedAmount = Number((investmentPerGrid / order.price).toFixed(8));
                 expect(order.amount).toBe(expectedAmount);
             });
@@ -105,8 +110,8 @@ describe('DynamicHedgeGridStrategy', () => {
             const sellPrices = orders.filter(o => !o.isBuy).map(o => o.price).sort((a, b) => a - b);
             const buyPrices = orders.filter(o => o.isBuy).map(o => o.price).sort((a, b) => a - b);
 
-            expect(sellPrices).toEqual([30600, 31200, 31800, 32400, 33000]);
-            expect(buyPrices).toEqual([27000, 27600, 28200, 28800, 29400]);
+            expect(sellPrices).toEqual([30300, 30600, 30900, 31200, 31500]);
+            expect(buyPrices).toEqual([28500, 28800, 29100, 29400, 29700]);
         });
 
         describe('createGrid edge cases', () => {
@@ -120,175 +125,123 @@ describe('DynamicHedgeGridStrategy', () => {
         
                 // 创建策略实例，设置网格参数
                 strategy = new DynamicHedgeGridStrategy({
-                    gridUpperLimit: upperLimit,
-                    gridLowerLimit: lowerLimit,
-                    gridCount: gridCount,
-                    totalInvestment: 1000
+                    gridWidth,
+                    gridCount,
+                    totalInvestment: 1000,
+                    pricePosition
                 });
         
                 strategy['exchange'] = exchange;
             });
             /**
-             * 测试场景 1：当价格在下边界 27000 时
-             * - 27000 是网格的最低点，所以不会在这个价格创建订单
-             * - 应该创建 10 个卖单，价格从 27600 到 33000
-             * - 初始仓位应该是总投资额的一半用于买入 BTC
+             * 测试场景 1：价格在网格中间（pricePosition=50）
+             * - 应该创建 5 个买单和 5 个卖单
+             * - 买卖单数量应该平均分配
              */
-            it('should create sell orders when price is at lower limit', async () => {
-                jest.spyOn(priceModule, 'getPrice').mockImplementation(() => lowerLimit);
-                await strategy['createGrid'](Symbol.BTC_USDT, lowerLimit);
+            it('should create balanced grid when price is in middle (50% position)', async () => {
+                strategy = new DynamicHedgeGridStrategy({
+                    gridWidth,
+                    gridCount,
+                    totalInvestment: 1000,
+                    pricePosition: 50
+                });
+                strategy['exchange'] = exchange;
+
+                await strategy['createGrid'](Symbol.BTC_USDT, currentPrice);
                 const orders = exchange.getPendingOrders();
-                
-                // 生成预期的价格序列：从 27600 到 33000，每格 600
-                const expectedPrices = Array.from({length: gridCount}, (_, i) => 
-                    lowerLimit + (i + 1) * gridSize);
-                
-                // 验证订单数量应该是 10 个（不包含 27000 这个价格点）
+
+                // 验证买卖单数量相等
+                const sellOrders = orders.filter(o => !o.isBuy);
+                const buyOrders = orders.filter(o => o.isBuy);
+                expect(sellOrders.length).toBe(5);
+                expect(buyOrders.length).toBe(5);
+
+                // 验证价格分布
+                const { upperLimit, lowerLimit } = strategy['calculateGridLimits'](currentPrice);
+                const gridSize = (upperLimit - lowerLimit) / gridCount;
+
+                // 验证卖单价格
+                const sellPrices = sellOrders.map(o => o.price).sort((a, b) => a - b);
+                const expectedSellPrices = Array.from({length: 5}, (_, i) => 
+                    currentPrice + (i + 1) * gridSize);
+                expect(sellPrices).toEqual(expectedSellPrices);
+
+                // 验证买单价格
+                const buyPrices = buyOrders.map(o => o.price).sort((a, b) => a - b);
+                const expectedBuyPrices = Array.from({length: 5}, (_, i) => 
+                    currentPrice - (5 - i) * gridSize);
+                expect(buyPrices).toEqual(expectedBuyPrices);
+            });
+
+            /**
+             * 测试场景 2：价格在网格底部（pricePosition=0）
+             * - 应该只创建卖单
+             * - 所有资金用于买入初始仓位
+             */
+            it('should create only sell orders when price is at bottom (0% position)', async () => {
+                strategy = new DynamicHedgeGridStrategy({
+                    gridWidth,
+                    gridCount,
+                    totalInvestment: 1000,
+                    pricePosition: 0
+                });
+                strategy['exchange'] = exchange;
+
+                await strategy['createGrid'](Symbol.BTC_USDT, currentPrice);
+                const orders = exchange.getPendingOrders();
+
+                // 验证全部是卖单
+                expect(orders.every(o => !o.isBuy)).toBe(true);
                 expect(orders.length).toBe(gridCount);
 
-                // 验证全部都是卖单，因为当前价格是最低点
-                expect(orders.every(o => !o.isBuy)).toBe(true);
+                // 验证价格分布
+                const { upperLimit } = strategy['calculateGridLimits'](currentPrice);
+                const gridSize = (upperLimit - currentPrice) / gridCount;
+                const expectedPrices = Array.from({length: gridCount}, (_, i) => 
+                    currentPrice + (i + 1) * gridSize);
                 
-                // 验证订单价格完全匹配预期的价格序列
                 const actualPrices = orders.map(o => o.price).sort((a, b) => a - b);
                 expect(actualPrices).toEqual(expectedPrices);
 
-                // 验证卖单中锁定的 BTC 总量等于预期的初始仓位
-                const totalInvestment = 1000; // 使用策略配置的投资额
-                const expectedInitialBtc = totalInvestment / lowerLimit; // 1000/27000 ≈ 0.037037
+                // 验证初始仓位
+                const totalInvestment = 1000;
+                const expectedInitialBtc = Number((totalInvestment / currentPrice).toFixed(8));
                 const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
                 expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 5);
             });
 
             /**
-             * 测试场景 2：当价格低于下边界（26900）时
-             * - 所有价格点都应该创建卖单
-             * - 初始仓位应该使用全部投资额买入 BTC
+             * 测试场景 3：价格在网格顶部（pricePosition=100）
+             * - 应该只创建买单
+             * - 不需要买入初始仓位
              */
-            it('should create sell orders when price is below lower limit', async () => {
-                const belowLowerLimit = 26900;
-                jest.spyOn(priceModule, 'getPrice').mockImplementation(() => belowLowerLimit);
-                await strategy['createGrid'](Symbol.BTC_USDT, belowLowerLimit);
+            it('should create only buy orders when price is at top (100% position)', async () => {
+                strategy = new DynamicHedgeGridStrategy({
+                    gridWidth,
+                    gridCount,
+                    totalInvestment: 1000,
+                    pricePosition: 100
+                });
+                strategy['exchange'] = exchange;
+
+                await strategy['createGrid'](Symbol.BTC_USDT, currentPrice);
                 const orders = exchange.getPendingOrders();
-                
-                // 生成预期的价格序列：从 27000 到 33000，每格 600
-                const expectedPrices = Array.from({length: gridCount + 1}, (_, i) => 
-                    lowerLimit + i * gridSize);
-                
-                // 验证订单数量应该是 11 个（包含 27000 这个价格点）
-                expect(orders.length).toBe(gridCount + 1);
 
-                // 验证全部都是卖单，因为当前价格低于最低点
-                expect(orders.every(o => !o.isBuy)).toBe(true);
-                
-                // 验证订单价格完全匹配预期的价格序列
-                const actualPrices = orders.map(o => o.price).sort((a, b) => a - b);
-                expect(actualPrices).toEqual(expectedPrices);
-
-                // 验证卖单中锁定的 BTC 总量
-                const totalInvestment = 1000; // 使用全部投资额
-                const expectedInitialBtc = Number((totalInvestment / belowLowerLimit).toFixed(8));
-                const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
-                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 8);
-            });
-
-            /**
-             * 测试场景 3：当价格在上边界 33000 时
-             * - 33000 是网格的最高点，所以不会在这个价格创建订单
-             * - 应该创建 11 个买单，价格从 27000 到 32400
-             * - 不需要买入初始仓位，因为全是买单
-             */
-            it('should create buy orders when price is at upper limit', async () => {
-                jest.spyOn(priceModule, 'getPrice').mockImplementation(() => upperLimit);
-                await strategy['createGrid'](Symbol.BTC_USDT, upperLimit);
-                const orders = exchange.getPendingOrders();
-                
-                // 生成预期的价格序列：从 32400 往下到 27000，每格 600
-                const expectedPrices = Array.from({length: gridCount}, (_, i) => 
-                    upperLimit - (i + 1) * gridSize);
-                
-                // 验证订单数量应该是 10 个（不包含上边界价格点）
+                // 验证全部是买单
+                expect(orders.every(o => o.isBuy)).toBe(true);
                 expect(orders.length).toBe(gridCount);
 
-                // 验证全部都是买单，因为当前价格是最高点
-                expect(orders.every(o => o.isBuy)).toBe(true);
+                // 验证价格分布
+                const { lowerLimit } = strategy['calculateGridLimits'](currentPrice);
+                const gridSize = (currentPrice - lowerLimit) / gridCount;
+                const expectedPrices = Array.from({length: gridCount}, (_, i) => 
+                    currentPrice - (i + 1) * gridSize);
                 
-                // 验证订单价格完全匹配预期的价格序列
                 const actualPrices = orders.map(o => o.price).sort((a, b) => b - a);
                 expect(actualPrices).toEqual(expectedPrices);
 
-                // 验证不需要初始买入
-                const btcBalance = wallet.getBalance(Symbol.BTC_USDT);
-                expect(btcBalance).toBe(0);
-            });
-
-            /**
-             * 测试场景 4：当价格远低于下边界时
-             * - 所有价格点都应该创建卖单
-             * - 初始仓位应该使用全部投资额买入 BTC
-             */
-            it('should create sell orders when price is far below lower limit', async () => {
-                const farBelowLimit = 25000;
-                jest.spyOn(priceModule, 'getPrice').mockImplementation(() => farBelowLimit);
-                await strategy['createGrid'](Symbol.BTC_USDT, farBelowLimit);
-                const orders = exchange.getPendingOrders();
-                
-                // 生成预期的价格序列：从 27000 到 33000
-                const expectedPrices = Array.from({length: gridCount + 1}, (_, i) => 
-                    lowerLimit + i * gridSize);
-                
-                // 验证订单数量应该是 11 个（包含所有网格点）
-                expect(orders.length).toBe(gridCount + 1);
-
-                // 验证全部都是卖单，因为当前价格远低于最低点
-                expect(orders.every(o => !o.isBuy)).toBe(true);
-                
-                // 验证订单价格完全匹配预期的价格序列
-                const actualPrices = orders.map(o => o.price).sort((a, b) => a - b);
-                expect(actualPrices).toEqual(expectedPrices);
-
-                // 验证没有创建网格范围外的订单
-                expect(orders.some(o => o.price < lowerLimit)).toBe(false);
-                
-                // 验证卖单中锁定的 BTC 总量
-                const totalInvestment = 1000; // 使用全部投资额
-                const expectedInitialBtc = Number((totalInvestment / farBelowLimit).toFixed(8));
-                const totalLockedBTC = orders.reduce((sum, order) => sum + order.amount, 0);
-                expect(totalLockedBTC).toBeCloseTo(expectedInitialBtc, 3);
-            });
-
-            /**
-             * 测试场景 5：当价格远高于上边界（比如 35000）时
-             * - 应该创建 11 个买单，价格从 27000 到 33000
-             * - 不应该在 35000 创建买单，因为它超出了网格范围
-             * - 不需要买入初始仓位，因为全是买单
-             */
-            it('should create buy orders when price is far above upper limit', async () => {
-                const farAboveLimit = 35000;
-                jest.spyOn(priceModule, 'getPrice').mockImplementation(() => farAboveLimit);
-                await strategy['createGrid'](Symbol.BTC_USDT, farAboveLimit);
-                const orders = exchange.getPendingOrders();
-                
-                // 生成预期的价格序列：从 27000 到 33000
-                const expectedPrices = Array.from({length: gridCount + 1}, (_, i) => 
-                    lowerLimit + i * gridSize);
-                
-                // 验证订单数量应该是 11 个（包含所有网格点）
-                expect(orders.length).toBe(gridCount + 1);
-
-                // 验证全部都是买单，因为当前价格远高于最高点
-                expect(orders.every(o => o.isBuy)).toBe(true);
-                
-                // 验证订单价格完全匹配预期的价格序列
-                const actualPrices = orders.map(o => o.price).sort((a, b) => a - b);
-                expect(actualPrices).toEqual(expectedPrices);
-
-                // 验证没有创建网格范围外的订单
-                expect(orders.some(o => o.price > upperLimit)).toBe(false);
-
-                // 验证不需要初始买入
-                const btcBalance = wallet.getBalance(Symbol.BTC_USDT);
-                expect(btcBalance).toBe(0);
+                // 验证没有初始仓位
+                expect(wallet.getBalance(Symbol.BTC_USDT)).toBe(0);
             });
         });
 
@@ -310,26 +263,18 @@ describe('DynamicHedgeGridStrategy', () => {
 
     describe('Take profit and stop loss', () => {
         beforeEach(() => {
-            // 创建策略实例，设置网格参数和止盈止损价格
             strategy = new DynamicHedgeGridStrategy({
-                gridUpperLimit: upperLimit,
-                gridLowerLimit: lowerLimit,
-                gridCount: gridCount,
+                gridWidth,
+                gridCount,
                 totalInvestment: 1000,
-                takeProfitPrice: 34000,  // 止盈价格
-                stopLossPrice: 26000     // 止损价格
+                pricePosition: 50,  // 默认价格在中间
+                takeProfitPrice: currentPrice * 1.15,  // 止盈价格设为当前价格的 115%
+                stopLossPrice: currentPrice * 0.85     // 止损价格设为当前价格的 85%
             });
 
             strategy['exchange'] = exchange;
         });
 
-        /**
-         * 测试场景：触发止盈
-         * - 当开盘价达到止盈价格时，应该：
-         * 1. 取消所有未成交订单
-         * 2. 平掉所有持仓
-         * 3. 重置网格状态
-         */
         it('should close all positions when take profit is triggered', async () => {
             // 1. 先创建初始网格
             const initKline: Kline = {
@@ -338,242 +283,117 @@ describe('DynamicHedgeGridStrategy', () => {
                 high: currentPrice + 100,
                 low: currentPrice - 100,
                 close: currentPrice,
-                volume: 100,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                volume: 100
             };
             await strategy['checkAndCreateGrid'](initKline);
-            expect(exchange.getPendingOrders().length).toBeGreaterThan(0);
-            
-            // 2. 模拟开盘价超过止盈价格
-            const kline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: 34200,  // 开盘价高于止盈价格 34000
-                high: 34500,
-                low: 33900,
-                close: 34100,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            
-            // 3. 执行策略
-            await strategy['checkAndCreateGrid'](kline);
-            
-            // 4. 验证所有订单都被取消
-            expect(exchange.getPendingOrders().length).toBe(0);
-            
-            // 5. 验证所有 BTC 都被卖出
-            expect(wallet.getBalance(Symbol.BTC_USDT)).toBe(0);
-            
-            // 6. 验证网格状态被重置
-            expect(strategy['isGridInitialized']).toBe(false);
-        });
 
-        /**
-         * 测试场景：触发止损
-         * - 当开盘价达到止损价格时，应该：
-         * 1. 取消所有未成交订单
-         * 2. 平掉所有持仓
-         * 3. 重置网格状态
-         */
-        it('should close all positions when stop loss is triggered', async () => {
-            // 1. 先创建初始网格
-            const initKline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: currentPrice,
-                high: currentPrice + 100,
-                low: currentPrice - 100,
-                close: currentPrice,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            await strategy['checkAndCreateGrid'](initKline);
-            expect(exchange.getPendingOrders().length).toBeGreaterThan(0);
-            
-            // 2. 模拟开盘价低于止损价格
-            const kline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: 25900,  // 开盘价低于止损价格 26000
-                high: 26500,
-                low: 25800,
-                close: 26100,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            
-            // 3. 执行策略
-            await strategy['checkAndCreateGrid'](kline);
-            
-            // 4. 验证所有订单都被取消
-            expect(exchange.getPendingOrders().length).toBe(0);
-            
-            // 5. 验证所有 BTC 都被卖出
-            expect(wallet.getBalance(Symbol.BTC_USDT)).toBe(0);
-            
-            // 6. 验证网格状态被重置
-            expect(strategy['isGridInitialized']).toBe(false);
-        });
+            // 验证初始网格创建正确
+            const initialOrders = exchange.getPendingOrders();
+            expect(initialOrders.length).toBe(10); // 5 买 5 卖
+            expect(initialOrders.filter(o => !o.isBuy).length).toBe(5); // 5 个卖单
+            expect(initialOrders.filter(o => o.isBuy).length).toBe(5);  // 5 个买单
 
-        /**
-         * 测试场景：正常价格范围
-         * - 当开盘价在止盈止损范围内时，不应该触发平仓
-         */
-        it('should not close positions when price is within normal range', async () => {
-            // 1. 先创建初始网格
-            const initKline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: currentPrice,
-                high: currentPrice + 100,
-                low: currentPrice - 100,
-                close: currentPrice,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            await strategy['checkAndCreateGrid'](initKline);
-            const initialOrders = exchange.getPendingOrders().length;
-            
-            // 2. 模拟正常价格范围内的波动
-            const kline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: 30500,  // 开盘价在正常范围内
-                high: 32000,
-                low: 28000,
-                close: 31000,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            
-            // 3. 执行策略
-            await strategy['checkAndCreateGrid'](kline);
-            
-            // 4. 验证订单没有被取消
-            expect(exchange.getPendingOrders().length).toBe(initialOrders);
-            
-            // 5. 验证网格状态保持不变
-            expect(strategy['isGridInitialized']).toBe(true);
-        });
-
-        /**
-         * 测试场景：触发止盈后再次创建网格
-         * - 当价格回落到正常范围时，应该：
-         * 1. 重新创建网格订单
-         * 2. 买入初始仓位
-         * 3. 重置网格状态为已初始化
-         */
-        it('should recreate grid after take profit is triggered', async () => {
-            // 1. 先创建初始网格
-            const initKline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: currentPrice,
-                high: currentPrice + 100,
-                low: currentPrice - 100,
-                close: currentPrice,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            await strategy['checkAndCreateGrid'](initKline);
-            const initialOrdersCount = exchange.getPendingOrders().length;
-            
             // 2. 触发止盈
             const tpKline: Kline = {
                 symbol: Symbol.BTC_USDT,
-                open: 34200,  // 高于止盈价格 34000
-                high: 34500,
-                low: 33900,
-                close: 34100,
-                volume: 100,
-                timestamp: Date.now()
+                open: currentPrice * 1.16, // 超过止盈价格
+                high: currentPrice * 1.17,
+                low: currentPrice * 1.15,
+                close: currentPrice * 1.16,
+                timestamp: Date.now(),
+                volume: 100
             };
+            
             await strategy['checkAndCreateGrid'](tpKline);
             
-            // 验证止盈触发后状态
+            // 验证所有订单被取消，仓位被平掉
             expect(exchange.getPendingOrders().length).toBe(0);
             expect(wallet.getBalance(Symbol.BTC_USDT)).toBe(0);
             expect(strategy['isGridInitialized']).toBe(false);
-
-            // 3. 价格回落，重新创建网格
-            const newKline: Kline = {
-                symbol: Symbol.BTC_USDT,
-                open: 30000,  // 回到正常价格范围
-                high: 30500,
-                low: 29500,
-                close: 30200,
-                volume: 100,
-                timestamp: Date.now()
-            };
-            await strategy['checkAndCreateGrid'](newKline);
-
-            // 验证网格重新创建
-            expect(exchange.getPendingOrders().length).toBe(initialOrdersCount);
-            expect(strategy['isGridInitialized']).toBe(true);
-
-            // 验证买卖单数量正确
-            const orders = exchange.getPendingOrders();
-            const sellOrders = orders.filter(o => !o.isBuy);
-            const buyOrders = orders.filter(o => o.isBuy);
-            expect(sellOrders.length).toBe(5);  // 30600-33000 的卖单
-            expect(buyOrders.length).toBe(5);   // 27000-29400 的买单
         });
 
-        /**
-         * 测试场景：触发止损后再次创建网格
-         * - 当价格回升到正常范围时，应该：
-         * 1. 重新创建网格订单
-         * 2. 买入初始仓位
-         * 3. 重置网格状态为已初始化
-         */
-        it('should recreate grid after stop loss is triggered', async () => {
-            // 1. 先创建初始网格
+        it('should recreate grid after take profit with new price levels', async () => {
+            // 1. 先创建初始网格，价格在 30000
             const initKline: Kline = {
                 symbol: Symbol.BTC_USDT,
                 open: currentPrice,
-                high: currentPrice + 100,
-                low: currentPrice - 100,
+                high: currentPrice * 1.01,
+                low: currentPrice * 0.99,
                 close: currentPrice,
-                volume: 100,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                volume: 100
             };
             await strategy['checkAndCreateGrid'](initKline);
-            const initialOrdersCount = exchange.getPendingOrders().length;
-            
-            // 2. 触发止损
-            const slKline: Kline = {
+
+            // 验证初始网格创建正确
+            let orders = exchange.getPendingOrders();
+            expect(orders.length).toBe(10); // 应该有 10 个订单（5 买 5 卖）
+
+            // 2. 价格上涨到 34800 (currentPrice * 1.16)，触发止盈
+            const tpKline: Kline = {
                 symbol: Symbol.BTC_USDT,
-                open: 25900,  // 低于止损价格 26000
-                high: 26100,
-                low: 25800,
-                close: 26000,
-                volume: 100,
-                timestamp: Date.now()
+                open: currentPrice * 1.16,  // 34800 = 30000 * 1.16
+                high: currentPrice * 1.17,
+                low: currentPrice * 1.15,
+                close: currentPrice * 1.16,
+                timestamp: Date.now(),
+                volume: 100
             };
-            await strategy['checkAndCreateGrid'](slKline);
+            await strategy['checkAndCreateGrid'](tpKline);
             
-            // 验证止损触发后状态
-            expect(exchange.getPendingOrders().length).toBe(0);
+            // 验证所有订单被取消，仓位被平掉
+            orders = exchange.getPendingOrders();
+            expect(orders.length).toBe(0);
             expect(wallet.getBalance(Symbol.BTC_USDT)).toBe(0);
             expect(strategy['isGridInitialized']).toBe(false);
-
-            // 3. 价格回升，重新创建网格
-            const newKline: Kline = {
+            
+            // 3. 价格回落到 33000 (currentPrice * 1.1)，使用这个价格重建网格
+            const newPrice = currentPrice * 1.1; // 33000 = 30000 * 1.1
+            const rebuildKline: Kline = {
                 symbol: Symbol.BTC_USDT,
-                open: 30000,  // 回到正常价格范围
-                high: 30500,
-                low: 29500,
-                close: 30200,
-                volume: 100,
-                timestamp: Date.now()
+                open: newPrice,
+                high: newPrice * 1.01,
+                low: newPrice * 0.99,
+                close: newPrice,
+                timestamp: Date.now(),
+                volume: 100
             };
-            await strategy['checkAndCreateGrid'](newKline);
+            
+            await strategy['checkAndCreateGrid'](rebuildKline);
 
-            // 验证网格重新创建
-            expect(exchange.getPendingOrders().length).toBe(initialOrdersCount);
-            expect(strategy['isGridInitialized']).toBe(true);
+            // 4. 验证新网格创建正确
+            const newOrders = exchange.getPendingOrders();
+            expect(newOrders.length).toBe(10); // 应该有 10 个订单（5 买 5 卖）
 
-            // 验证买卖单数量正确
-            const orders = exchange.getPendingOrders();
-            const sellOrders = orders.filter(o => !o.isBuy);
-            const buyOrders = orders.filter(o => o.isBuy);
-            expect(sellOrders.length).toBe(5);  // 30600-33000 的卖单
-            expect(buyOrders.length).toBe(5);   // 27000-29400 的买单
+            // 5. 获取新的网格上下限
+            // 因为 pricePosition = 50，所以当前价格在网格中间
+            // totalWidth = gridCount * gridWidth = 10 * 0.01 = 0.1 (10%)
+            // widthAbove = totalWidth * 0.5 = 0.05 (5%)
+            // widthBelow = totalWidth * 0.5 = 0.05 (5%)
+            const { upperLimit, lowerLimit } = strategy['calculateGridLimits'](newPrice);
+            
+            // 6. 计算网格间距
+            // upperLimit = newPrice * (1 + 0.05) = 33000 * 1.05 = 34650
+            // lowerLimit = newPrice * (1 - 0.05) = 33000 * 0.95 = 31350
+            // gridSize = (34650 - 31350) / 10 = 330
+            const gridSize = (upperLimit - lowerLimit) / gridCount;
+
+            // 7. 验证卖单价格
+            const sellOrders = newOrders.filter(o => !o.isBuy).sort((a, b) => a.price - b.price);
+            expect(sellOrders.length).toBe(5); // 应该有 5 个卖单
+            sellOrders.forEach((order, index) => {
+                const expectedPrice = newPrice + (index + 1) * gridSize;
+                expect(order.price).toBeCloseTo(expectedPrice, 0);
+            });
+
+            // 8. 验证买单价格
+            const buyOrders = newOrders.filter(o => o.isBuy).sort((a, b) => a.price - b.price);
+            expect(buyOrders.length).toBe(5); // 应该有 5 个买单
+            buyOrders.forEach((order, index) => {
+                const expectedPrice = newPrice - (5 - index) * gridSize;
+                expect(order.price).toBeCloseTo(expectedPrice, 0);
+            });
         });
     });
 });

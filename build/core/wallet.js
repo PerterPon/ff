@@ -38,6 +38,7 @@ class Wallet {
      */
     addBalance(symbol, amount) {
         const currentBalance = this.getBalance(symbol);
+        console.log(`Adding ${amount} to ${symbol}, current balance: ${currentBalance}, new balance: ${currentBalance + amount}`);
         this.setBalance(symbol, currentBalance + amount);
     }
     /**
@@ -50,6 +51,7 @@ class Wallet {
         if (currentBalance < amount) {
             throw new Error(`余额不足: ${symbol} 当前余额: ${currentBalance}, 需要: ${amount}`);
         }
+        console.log(`Subtracting ${amount} from ${symbol}, current balance: ${currentBalance}, new balance: ${currentBalance - amount}`);
         this.setBalance(symbol, currentBalance - amount);
     }
     /**

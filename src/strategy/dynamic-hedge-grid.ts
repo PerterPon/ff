@@ -3,10 +3,10 @@ import { Exchange } from '../exchange/exchange';
 import { getPrice } from '../core/price';
 
 interface GridConfig {
-    gridUpperLimit: number;     // 网格上限价格
-    gridLowerLimit: number;     // 网格下限价格
+    gridWidth: number;          // 网格宽度（百分比），例如 0.01 表示 1%
     gridCount: number;          // 网格数量
     totalInvestment: number;    // 总投资额
+    pricePosition?: number;     // 当前价格在网格中的位置（0-100%），默认 50%
     takeProfitPrice?: number;   // 止盈价格
     stopLossPrice?: number;     // 止损价格
 }
@@ -18,6 +18,7 @@ interface GridOrder {
     amount: number;
 }
 
+
 export class DynamicHedgeGridStrategy implements Strategy {
     private exchange!: Exchange;
     private config: GridConfig;
@@ -27,10 +28,10 @@ export class DynamicHedgeGridStrategy implements Strategy {
 
     constructor(config: Partial<GridConfig> = {}) {
         this.config = {
-            gridUpperLimit: 0,
-            gridLowerLimit: 0,
-            gridCount: 10,
+            gridWidth: 0.01,    // 默认网格宽度 1%
+            gridCount: 10,      // 默认 10 个网格
             totalInvestment: 1000,  // 默认投资额
+            pricePosition: 50,  // 默认价格在网格中间
             ...config
         };
     }
@@ -63,25 +64,47 @@ export class DynamicHedgeGridStrategy implements Strategy {
     }
 
     /**
+     * 根据当前价格和位置计算网格上下限
+     */
+    private calculateGridLimits(currentPrice: number): { upperLimit: number; lowerLimit: number } {
+        // 计算网格总宽度
+        const totalWidth = this.config.gridCount * this.config.gridWidth;
+        
+        // 根据价格位置计算上下限
+        const positionRatio = this.config.pricePosition! / 100;
+        const widthAbove = totalWidth * (1 - positionRatio);
+        const widthBelow = totalWidth * positionRatio;
+        
+        // 计算上下限
+        const upperLimit = currentPrice * (1 + widthAbove);
+        const lowerLimit = currentPrice * (1 - widthBelow);
+
+        return { upperLimit, lowerLimit };
+    }
+
+    /**
      * 创建网格
      * @param symbol 交易对
      * @param currentPrice 当前价格
      */
     private async createGrid(symbol: Symbol, currentPrice: number): Promise<void> {
-        // 1. 计算网格间距
-        const totalRange = this.config.gridUpperLimit - this.config.gridLowerLimit;
+        // 1. 计算网格上下限
+        const { upperLimit, lowerLimit } = this.calculateGridLimits(currentPrice);
+        
+        // 2. 计算网格间距
+        const totalRange = upperLimit - lowerLimit;
         this.gridSpacing = totalRange / this.config.gridCount;
 
-        // 2. 生成所有网格价格点
+        // 3. 生成所有网格价格点
         const gridPrices: number[] = [];
         for (let i = 0; i <= this.config.gridCount; i++) {
-            const price = this.config.gridLowerLimit + (i * this.gridSpacing);
+            const price = lowerLimit + (i * this.gridSpacing);
             gridPrices.push(price);
         }
 
         console.log('网格所有价格点:', gridPrices);
 
-        // 3. 根据当前价格确定买卖单的分布
+        // 4. 根据当前价格确定买卖单的分布
         const sellGridPrices = gridPrices.filter(price => 
             price > currentPrice
         );
@@ -118,7 +141,7 @@ export class DynamicHedgeGridStrategy implements Strategy {
             investmentPerBuyGrid = this.config.totalInvestment / buyGridPrices.length;
         }
 
-        // 4. 买入初始仓位
+        // 5. 买入初始仓位
         try {
             if (initialBtcAmount > 0) {
                 await this.exchange.spotBuy(symbol, initialBtcAmount);
@@ -130,7 +153,7 @@ export class DynamicHedgeGridStrategy implements Strategy {
         }
 
         
-        // 5. 创建网格订单
+        // 6. 创建网格订单
         this.gridOrders = [];
         for (const price of gridPrices) {
             if (price === currentPrice) {
