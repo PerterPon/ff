@@ -1,6 +1,6 @@
 import { Strategy, Symbol, Kline } from '../types/main';
 import { Exchange } from '../exchange/exchange';
-import { getPrice } from '../core/price';
+import { getPrice, setPrice } from '../core/price';
 
 interface GridConfig {
     gridWidth: number;          // 网格宽度（百分比），例如 0.01 表示 1%
@@ -38,7 +38,9 @@ export class DynamicHedgeGridStrategy implements Strategy {
 
     async execute(exchange: Exchange, kline: Kline): Promise<void> {
         this.exchange = exchange;
-        
+        setPrice(kline.symbol, kline.open);
+        const currentPrice = getPrice(kline.symbol);
+        console.log('当前价格：', currentPrice);
         try {
             await this.checkAndCreateGrid(kline);
 

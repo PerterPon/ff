@@ -7,6 +7,8 @@ const path = require("path");
 const echarts = require("echarts");
 const jsdom_1 = require("jsdom");
 const canvas_1 = require("canvas");
+const moment = require("moment");
+const main_1 = require("../types/main");
 const INITIAL_BALANCE = 100000; // 初始资金
 const MAX_ITERATIONS = 1; // 最大循环次数
 const RESULT_BASE_PATH = '/Users/pon/project/ff2';
@@ -39,7 +41,7 @@ async function generateChart(result, filePath) {
             },
             xAxis: {
                 type: 'category',
-                data: result.timestamps.map(ts => new Date(ts).toLocaleString())
+                data: result.timestamps.map(ts => moment(new Date(ts)).format('YYYY-MM-DD'))
             },
             yAxis: {
                 type: 'value',
@@ -88,6 +90,8 @@ async function saveResult(result, iteration) {
     // 保存图表
     await generateChart(result, path.join(basePath, `${fileName}.png`));
     // 保存 JSON 结果
+    delete result.timestamps;
+    delete result.assetValues;
     await fs.promises.writeFile(path.join(basePath, `${fileName}.json`), JSON.stringify(result, null, 2));
 }
 /**
@@ -103,20 +107,76 @@ async function cleanBadResults() {
     }
 }
 /**
+ * 生成网格策略参数
+ * @returns DynamicHedgeGridStrategy 的配置参数
+ */
+function generateGridConfig() {
+    // 随机生成网格宽度（0.5% - 2%）
+    const gridWidth = Number((Math.random() * 0.015 + 0.005).toFixed(3));
+    // 随机生成网格数量（6-20）
+    const gridCount = Math.floor(Math.random() * 15) + 6;
+    // 随机生成投资额（500-5000）
+    const totalInvestment = INITIAL_BALANCE;
+    // 随机生成价格位置（0-100%）
+    const pricePosition = Number((Math.random() * 100).toFixed(2));
+    // 随机生成止盈比例（1.05-1.20，即 5%-20%）
+    const takeProfitRatio = Number((Math.random() * 0.15 + 1.05).toFixed(2));
+    // 随机生成止损比例（0.80-0.95，即 -20%--5%）
+    const stopLossRatio = Number((Math.random() * 0.15 + 0.80).toFixed(2));
+    return {
+        gridWidth,
+        gridCount,
+        totalInvestment,
+        pricePosition,
+        takeProfitRatio,
+        stopLossRatio
+    };
+}
+/**
+ * 运行回测并记录结果
+ */
+async function runBacktest(config) {
+    const strategy = new dynamic_hedge_grid_1.DynamicHedgeGridStrategy({
+        gridWidth: config.gridWidth,
+        gridCount: config.gridCount,
+        totalInvestment: config.totalInvestment,
+        pricePosition: config.pricePosition,
+        // 止盈止损价格在策略内部根据当前价格动态设置
+    });
+    const backtest = new backtest_1.Backtest(strategy, INITIAL_BALANCE);
+    return await backtest.run('/Users/pon/project/ff2/data/btc_better.json', main_1.Symbol.BTC_USDT);
+}
+/**
  * 主函数
  */
 async function main() {
     // 清理 bad_result 目录
     await cleanBadResults();
+    // 记录最佳结果
+    let bestResult = null;
+    let bestConfig = null;
     // 开始优化循环
     for (let i = 0; i < MAX_ITERATIONS; i++) {
         console.log(`开始第 ${i + 1} 次回测...`);
         try {
-            // 创建策略实例
-            const strategy = new dynamic_hedge_grid_1.DynamicHedgeGridStrategy();
-            const backtest = new backtest_1.Backtest(strategy, INITIAL_BALANCE);
+            // 生成新的配置
+            const config = generateGridConfig();
+            console.log('当前配置:', {
+                网格宽度: `${(config.gridWidth * 100).toFixed(2)}%`,
+                网格数量: config.gridCount,
+                投资额: config.totalInvestment,
+                价格位置: `${config.pricePosition}%`,
+                止盈比例: `${((config.takeProfitRatio - 1) * 100).toFixed(2)}%`,
+                止损比例: `${((config.stopLossRatio - 1) * 100).toFixed(2)}%`
+            });
             // 运行回测
-            const result = await backtest.run('/Users/pon/project/ff2/data/test.json');
+            const result = await runBacktest(config);
+            // 更新最佳结果
+            if (!bestResult || result.returns > bestResult.returns) {
+                bestResult = result;
+                bestConfig = config;
+                console.log('发现新的最佳配置！');
+            }
             // 保存结果
             await saveResult(result, i + 1);
             // 输出回测结果
@@ -133,6 +193,19 @@ async function main() {
         catch (error) {
             console.error(`第 ${i + 1} 次回测失败:`, error);
         }
+    }
+    // 输出最佳结果
+    if (bestResult && bestConfig) {
+        console.log('\n最佳配置：', {
+            网格宽度: `${(bestConfig.gridWidth * 100).toFixed(2)}%`,
+            网格数量: bestConfig.gridCount,
+            投资额: bestConfig.totalInvestment,
+            价格位置: `${bestConfig.pricePosition}%`,
+            止盈比例: `${((bestConfig.takeProfitRatio - 1) * 100).toFixed(2)}%`,
+            止损比例: `${((bestConfig.stopLossRatio - 1) * 100).toFixed(2)}%`,
+            最终收益率: `${(bestResult.returns * 100).toFixed(2)}%`,
+            最大回撤: `${(bestResult.maxDrawdown * 100).toFixed(2)}%`
+        });
     }
 }
 // 运行主函数

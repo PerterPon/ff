@@ -153,7 +153,7 @@ export class DynamicHedgeGridStrategy implements Strategy {
         }
 
         // 执行策略逻辑
-        this.executeStrategy(kline.symbol, kline.close, kline.timestamp);
+        this.executeStrategy(kline.symbol, kline.close, kline.openTime);
     }
 
     /**

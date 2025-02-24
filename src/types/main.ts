@@ -5,7 +5,7 @@ import { Exchange } from '../exchange/exchange';
  */
 export interface Kline {
     symbol: Symbol;
-    timestamp: number;    // 时间戳
+    openTime: number;    // 时间戳
     open: number;        // 开盘价
     high: number;        // 最高价
     low: number;         // 最低价

@@ -30,6 +30,8 @@ export class Exchange {
     private shortPositions: Map<Symbol, ShortPosition>;
     private orderIdCounter: number;
     private maintenanceMarginRate = 0.05; // 维持保证金率 5%
+    private totalFees: number = 0;
+    private totalTrades: number = 0;
 
     /**
      * @param wallet 钱包实例
@@ -59,6 +61,28 @@ export class Exchange {
     }
 
     /**
+     * 记录手续费和交易次数
+     */
+    private recordTrade(fee: number) {
+        this.totalFees += fee;
+        this.totalTrades++;
+    }
+
+    /**
+     * 获取总手续费
+     */
+    getTotalFees(): number {
+        return this.totalFees;
+    }
+
+    /**
+     * 获取总交易次数
+     */
+    getTotalTrades(): number {
+        return this.totalTrades;
+    }
+
+    /**
      * 现货买入
      * @param symbol 交易对
      * @param amount 数量
@@ -85,6 +109,7 @@ export class Exchange {
         // 执行交易
         this.wallet.subtractFiatBalance(totalCostWithFee);
         this.wallet.addBalance(symbol, amount);
+        this.recordTrade(fee);
     }
 
     /**
@@ -113,6 +138,7 @@ export class Exchange {
         // 执行交易
         this.wallet.subtractBalance(symbol, amount);
         this.wallet.addFiatBalance(totalRevenueAfterFee);
+        this.recordTrade(fee);
     }
 
     /**
@@ -122,7 +148,7 @@ export class Exchange {
      * @param price 期望买入价格
      * @returns 订单ID
      */
-    placeBuyOrder(symbol: Symbol, amount: number, price: number): string {
+    placeBuyOrder(symbol: Symbol, price: number, amount: number): string {
         if (amount <= 0 || price <= 0) {
             throw new Error('价格和数量必须大于 0');
         }
@@ -154,6 +180,8 @@ export class Exchange {
             timestamp: Date.now(),
             totalCostWithFee  // 记录包含手续费的总成本
         });
+
+        this.recordTrade(fee);
 
         return orderId;
     }
@@ -190,6 +218,8 @@ export class Exchange {
             amount,
             timestamp: Date.now()
         });
+
+        this.recordTrade(0); // 卖单不产生手续费
 
         return orderId;
     }

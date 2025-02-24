@@ -19,7 +19,7 @@ export class TestStrategy implements Strategy {
             // 尝试买入 1 个 BTC
             exchange.spotBuy(Symbol.BTC_USDT, 1);
             this.hasBought = true;
-            console.log(`买入 1 BTC，价格：${kline.close}，时间：${new Date(kline.timestamp).toLocaleString()}`);
+            console.log(`买入 1 BTC，价格：${kline.close}，时间：${new Date(kline.openTime).toLocaleString()}`);
         } catch (error) {
             console.warn(`买入失败：${error.message}`);
         }

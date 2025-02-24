@@ -6,6 +6,7 @@ const wallet_1 = require("../core/wallet");
 const main_1 = require("../types/main");
 const price_1 = require("../core/price");
 const fs = require("fs");
+const moment = require("moment");
 /**
  * 回测类
  */
@@ -30,7 +31,7 @@ class Backtest {
      * @param dataFile 数据文件路径
      * @returns 回测结果
      */
-    async run(dataFile) {
+    async run(dataFile, symbol) {
         // 读取数据文件
         const data = await this.loadData(dataFile);
         // 记录每个时间点的资产价值
@@ -40,6 +41,7 @@ class Backtest {
         let minDrawdown = this.initialBalance;
         // 遍历每个 K 线数据
         for (const kline of data) {
+            kline.symbol = symbol;
             // 设置当前价格
             (0, price_1.setPrice)(main_1.Symbol.BTC_USDT, kline.close);
             console.log(`当前价格：${kline.close}`);
@@ -59,9 +61,9 @@ class Backtest {
             maxBalance = Math.max(maxBalance, afterTrades);
             minDrawdown = Math.min(minDrawdown, afterTrades / maxBalance - 1);
             // 记录时间点和资产价值
-            timestamps.push(kline.timestamp);
+            timestamps.push(kline.openTime);
             assetValues.push(afterTrades);
-            console.log(`当前资产总值：${afterTrades}`);
+            console.log(`[${moment(new Date(kline.openTime)).format('YYYY-MM-DD HH:mm:ss')}] 当前资产总值：${afterTrades}`);
         }
         // 计算最终结果
         const finalBalance = assetValues[assetValues.length - 1];

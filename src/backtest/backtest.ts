@@ -3,6 +3,7 @@ import { Wallet } from '../core/wallet';
 import { Symbol, Kline, Strategy, BacktestResult } from '../types/main';
 import { setPrice } from '../core/price';
 import * as fs from 'fs';
+import * as moment from 'moment';
 
 /**
  * 回测类
@@ -11,8 +12,6 @@ export class Backtest {
     private exchange: Exchange;
     private strategy: Strategy;
     private initialBalance: number;
-    private totalTrades: number = 0;
-    private totalFees: number = 0;
 
     /**
      * @param strategy 交易策略
@@ -30,7 +29,7 @@ export class Backtest {
      * @param dataFile 数据文件路径
      * @returns 回测结果
      */
-    async run(dataFile: string): Promise<BacktestResult> {
+    async run(dataFile: string, symbol: Symbol): Promise<BacktestResult> {
         // 读取数据文件
         const data = await this.loadData(dataFile);
         
@@ -42,34 +41,27 @@ export class Backtest {
 
         // 遍历每个 K 线数据
         for (const kline of data) {
+            kline.symbol = symbol;
             // 设置当前价格
             setPrice(Symbol.BTC_USDT, kline.close);
             console.log(`当前价格：${kline.close}`);
 
-            // 记录交易前的资产总值
-            const beforeTrades = this.exchange.getTotalAssetValue();
-
             // 执行策略
             this.strategy.execute(this.exchange, kline);
 
-            // 记录交易后的资产总值
-            const afterTrades = this.exchange.getTotalAssetValue();
+            this.exchange.onPriceUpdate(kline.symbol, kline.close);
 
-            // 如果资产总值发生变化，说明有交易发生
-            if (beforeTrades !== afterTrades) {
-                this.totalTrades++;
-                // 假设资产值的减少就是手续费（这是个简化的计算方式）
-                this.totalFees += Math.max(0, beforeTrades - afterTrades);
-            }
+            // 记录当前资产总值
+            const currentValue = this.exchange.getTotalAssetValue();
 
             // 更新最大值和最小值（用于计算最大回撤）
-            maxBalance = Math.max(maxBalance, afterTrades);
-            minDrawdown = Math.min(minDrawdown, afterTrades / maxBalance - 1);
+            maxBalance = Math.max(maxBalance, currentValue);
+            minDrawdown = Math.min(minDrawdown, currentValue / maxBalance - 1);
 
             // 记录时间点和资产价值
-            timestamps.push(kline.timestamp);
-            assetValues.push(afterTrades);
-            console.log(`当前资产总值：${afterTrades}`);
+            timestamps.push(kline.openTime);
+            assetValues.push(currentValue);
+            console.log(`[${moment(new Date(kline.openTime)).format('YYYY-MM-DD HH:mm:ss')}] 当前资产总值：${currentValue}`);
         }
 
         // 计算最终结果
@@ -79,8 +71,8 @@ export class Backtest {
         return {
             timestamps,
             assetValues,
-            totalTrades: this.totalTrades,
-            totalFees: this.totalFees,
+            totalTrades: this.exchange.getTotalTrades(),
+            totalFees: this.exchange.getTotalFees(),
             initialBalance: this.initialBalance,
             finalBalance,
             maxDrawdown: minDrawdown,

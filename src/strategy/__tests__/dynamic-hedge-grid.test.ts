@@ -283,7 +283,7 @@ describe('DynamicHedgeGridStrategy', () => {
                 high: currentPrice + 100,
                 low: currentPrice - 100,
                 close: currentPrice,
-                timestamp: Date.now(),
+                openTime: Date.now(),
                 volume: 100
             };
             await strategy['checkAndCreateGrid'](initKline);
@@ -301,7 +301,7 @@ describe('DynamicHedgeGridStrategy', () => {
                 high: currentPrice * 1.17,
                 low: currentPrice * 1.15,
                 close: currentPrice * 1.16,
-                timestamp: Date.now(),
+                openTime: Date.now(),
                 volume: 100
             };
             
@@ -321,7 +321,7 @@ describe('DynamicHedgeGridStrategy', () => {
                 high: currentPrice * 1.01,
                 low: currentPrice * 0.99,
                 close: currentPrice,
-                timestamp: Date.now(),
+                openTime: Date.now(),
                 volume: 100
             };
             await strategy['checkAndCreateGrid'](initKline);
@@ -337,7 +337,7 @@ describe('DynamicHedgeGridStrategy', () => {
                 high: currentPrice * 1.17,
                 low: currentPrice * 1.15,
                 close: currentPrice * 1.16,
-                timestamp: Date.now(),
+                openTime: Date.now(),
                 volume: 100
             };
             await strategy['checkAndCreateGrid'](tpKline);
@@ -356,7 +356,7 @@ describe('DynamicHedgeGridStrategy', () => {
                 high: newPrice * 1.01,
                 low: newPrice * 0.99,
                 close: newPrice,
-                timestamp: Date.now(),
+                openTime: Date.now(),
                 volume: 100
             };
             

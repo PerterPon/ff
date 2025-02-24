@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DynamicHedgeGridStrategy = void 0;
+const price_1 = require("../core/price");
 class DynamicHedgeGridStrategy {
     exchange;
     config;
@@ -9,15 +10,18 @@ class DynamicHedgeGridStrategy {
     isGridInitialized = false;
     constructor(config = {}) {
         this.config = {
-            gridUpperLimit: 0,
-            gridLowerLimit: 0,
-            gridCount: 10,
+            gridWidth: 0.01, // 默认网格宽度 1%
+            gridCount: 10, // 默认 10 个网格
             totalInvestment: 1000, // 默认投资额
+            pricePosition: 50, // 默认价格在网格中间
             ...config
         };
     }
     async execute(exchange, kline) {
         this.exchange = exchange;
+        (0, price_1.setPrice)(kline.symbol, kline.open);
+        const currentPrice = (0, price_1.getPrice)(kline.symbol);
+        console.log('当前价格：', currentPrice);
         try {
             await this.checkAndCreateGrid(kline);
             // TODO: 处理网格交易逻辑
@@ -40,22 +44,39 @@ class DynamicHedgeGridStrategy {
         }
     }
     /**
+     * 根据当前价格和位置计算网格上下限
+     */
+    calculateGridLimits(currentPrice) {
+        // 计算网格总宽度
+        const totalWidth = this.config.gridCount * this.config.gridWidth;
+        // 根据价格位置计算上下限
+        const positionRatio = this.config.pricePosition / 100;
+        const widthAbove = totalWidth * (1 - positionRatio);
+        const widthBelow = totalWidth * positionRatio;
+        // 计算上下限
+        const upperLimit = currentPrice * (1 + widthAbove);
+        const lowerLimit = currentPrice * (1 - widthBelow);
+        return { upperLimit, lowerLimit };
+    }
+    /**
      * 创建网格
      * @param symbol 交易对
      * @param currentPrice 当前价格
      */
     async createGrid(symbol, currentPrice) {
-        // 1. 计算网格间距
-        const totalRange = this.config.gridUpperLimit - this.config.gridLowerLimit;
+        // 1. 计算网格上下限
+        const { upperLimit, lowerLimit } = this.calculateGridLimits(currentPrice);
+        // 2. 计算网格间距
+        const totalRange = upperLimit - lowerLimit;
         this.gridSpacing = totalRange / this.config.gridCount;
-        // 2. 生成所有网格价格点
+        // 3. 生成所有网格价格点
         const gridPrices = [];
         for (let i = 0; i <= this.config.gridCount; i++) {
-            const price = this.config.gridLowerLimit + (i * this.gridSpacing);
+            const price = lowerLimit + (i * this.gridSpacing);
             gridPrices.push(price);
         }
         console.log('网格所有价格点:', gridPrices);
-        // 3. 根据当前价格确定买卖单的分布
+        // 4. 根据当前价格确定买卖单的分布
         const sellGridPrices = gridPrices.filter(price => price > currentPrice);
         const buyGridPrices = gridPrices.filter(price => price < currentPrice);
         console.log('卖单价格点:', sellGridPrices);
@@ -83,7 +104,7 @@ class DynamicHedgeGridStrategy {
             // 如果只有买单，全部资金用于买单
             investmentPerBuyGrid = this.config.totalInvestment / buyGridPrices.length;
         }
-        // 4. 买入初始仓位
+        // 5. 买入初始仓位
         try {
             if (initialBtcAmount > 0) {
                 await this.exchange.spotBuy(symbol, initialBtcAmount);
@@ -94,7 +115,7 @@ class DynamicHedgeGridStrategy {
             console.error('Failed to buy initial position:', error);
             return;
         }
-        // 5. 创建网格订单
+        // 6. 创建网格订单
         this.gridOrders = [];
         for (const price of gridPrices) {
             if (price === currentPrice) {

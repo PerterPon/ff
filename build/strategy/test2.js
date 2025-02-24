@@ -86,7 +86,7 @@ class DynamicHedgeGridStrategy {
             this.maxBalance = this.initialTotalValue;
         }
         // 执行策略逻辑
-        this.executeStrategy(kline.symbol, kline.close, kline.timestamp);
+        this.executeStrategy(kline.symbol, kline.close, kline.openTime);
     }
     /**
      * 初始化策略
